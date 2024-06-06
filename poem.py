@@ -1,8 +1,6 @@
 # %% [markdown]
 # # 自动写诗      
 # 
-# ### 作者：郑之杰
-# 
 # 首先导入必要的库：
 
 # %%
@@ -11,6 +9,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import sys
 
 # %% [markdown]
 # # 加载数据集
@@ -57,22 +56,20 @@ class PoetryModel(nn.Module):
         super(PoetryModel, self).__init__()
         self.hidden_dim = hidden_dim
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, self.hidden_dim, num_layers=3, dropout=0.5)
+        self.lstm = nn.LSTM(embedding_dim, self.hidden_dim, num_layers=2)
         self.linear = nn.Linear(self.hidden_dim, vocab_size)
-        self.dropout = nn.Dropout(0.5)
 
-    def forward(self, input, hidden=None):
+    def forward(self, input, hidden = None):
         seq_len, batch_size = input.size()
-
+        
         if hidden is None:
-            h_0 = input.data.new(4, batch_size, self.hidden_dim).fill_(0).float()
-            c_0 = input.data.new(4, batch_size, self.hidden_dim).fill_(0).float()
+            h_0 = input.data.new(2, batch_size, self.hidden_dim).fill_(0).float()
+            c_0 = input.data.new(2, batch_size, self.hidden_dim).fill_(0).float()
         else:
             h_0, c_0 = hidden
 
         embeds = self.embedding(input)
         output, hidden = self.lstm(embeds, (h_0, c_0))
-        output = self.dropout(output)
         output = self.linear(output.view(seq_len * batch_size, -1))
         return output, hidden
 
@@ -91,7 +88,6 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # %%
 def train(dataloader, ix2word, word2ix):
-
     # 配置模型，是否继续上一次的训练
     model = PoetryModel(len(word2ix), embedding_dim, hidden_dim)
     if model_path:
@@ -106,24 +102,27 @@ def train(dataloader, ix2word, word2ix):
 
     # 定义训练过程
     for epoch in range(epochs):
-        for batch_idx, data in enumerate(dataloader):
+        # 创建tqdm对象
+        pbar = tqdm(enumerate(dataloader), total=len(dataloader), file=sys.stdout)
+        for batch_idx, data in pbar:
             data = data.long().transpose(1, 0).contiguous()
             data = data.to(device)
             input, target = data[:-1, :], data[1:, :]
             output, _ = model(input)
             loss = criterion(output, target.view(-1))
             
-            if batch_idx % 900 == 0 & verbose:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch+1, batch_idx * len(data[1]), len(dataloader.dataset),
-                    100. * batch_idx / len(dataloader), loss.item()))
+            # 更新进度条
+            pbar.set_description(f'Train Epoch: {epoch+1} [{batch_idx * len(data[1])}/{len(dataloader.dataset)} ({100. * batch_idx / len(dataloader):.1f}%)] Loss: {loss.item():.6f}')
             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
+        # 关闭进度条
+        pbar.close()
+
     # 保存模型
-    torch.save(model.state_dict(), 'model.pth')
+    torch.save(model.state_dict(), 'model1.pth')
 
 # %%
 train(dataloader, ix2word, word2ix)
@@ -132,12 +131,6 @@ train(dataloader, ix2word, word2ix)
 # # 生成唐诗
 # 
 # 给定几个词，根据这几个词接着生成一首完整的唐诗。
-
-# %%
-# 设置超参数
-model_path = 'model.pth'        # 模型路径
-start_words = '湖光秋月两相和'  # 唐诗的第一句
-max_gen_len = 125                # 生成唐诗的最长长度
 
 # %%
 def generate(start_words, ix2word, word2ix):
@@ -177,19 +170,23 @@ def generate(start_words, ix2word, word2ix):
     return results
 
 # %%
+# 设置超参数
+model_path = 'model1.pth'        # 模型路径
+start_words = '湖光秋月两相和'  # 唐诗的第一句
+max_gen_len = 64              # 生成唐诗的最长长度
 results = generate(start_words, ix2word, word2ix)
 print(results)
+
+# %%
+for i in results:
+    print(i, end="")
+    if i =="。":
+        print('')
 
 # %% [markdown]
 # # 生成藏头诗
 # 
 # 
-
-# %%
-# 设置超参数
-model_path = 'model.pth'                 # 模型路径
-start_words_acrostic = '湖光秋月两相和'  # 唐诗的“头”
-max_gen_len_acrostic = 125               # 生成唐诗的最长长度
 
 # %%
 def gen_acrostic(start_words, ix2word, word2ix):
@@ -237,7 +234,17 @@ def gen_acrostic(start_words, ix2word, word2ix):
     return results
 
 # %%
+# 设置超参数
+model_path = 'model1.pth'                 # 模型路径
+start_words_acrostic = '湖光秋月两相和'  # 唐诗的“头”
+max_gen_len_acrostic = 128              # 生成唐诗的最长长度
 results_acrostic = gen_acrostic(start_words_acrostic, ix2word, word2ix)
 print(results_acrostic)
+
+# %%
+for i in results_acrostic:
+    print(i, end="")
+    if i =="。":
+        print('')
 
 
